@@ -18,28 +18,21 @@ import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Direction;
 import frc.robot.generated.TunerConstants;
-import frc.robot.subsystems.Drivetrain;
+import frc.robot.subsystems.Drivetrain.CommandSwerveDrivetrain;
+import frc.robot.utils.Constants.DriveConstants;
+import frc.robot.utils.PoseUtils;
+
+import static frc.robot.utils.Constants.DriveConstants.*;
 
 public class RobotContainer {
-    private double MaxSpeed = TunerConstants.kSpeedAt12Volts.in(MetersPerSecond); // kSpeedAt12Volts desired top speed
-    private double MaxAngularRate =
-            RotationsPerSecond.of(0.75).in(RadiansPerSecond); // 3/4 of a rotation per second max angular velocity
+        
+    private final Telemetry logger = new Telemetry(DriveConstants.MAX_SPEED);
 
-    /* Setting up bindings for necessary control of the swerve drive platform */
-    private final SwerveRequest.FieldCentric drive = new SwerveRequest.FieldCentric()
-            .withDeadband(MaxSpeed * 0.1)
-            .withRotationalDeadband(MaxAngularRate * 0.1) // Add a 10% deadband
-            .withDriveRequestType(DriveRequestType.OpenLoopVoltage); // Use open-loop control for drive motors
-    private final SwerveRequest.SwerveDriveBrake brake = new SwerveRequest.SwerveDriveBrake();
-    private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
-    private final SwerveRequest.RobotCentric forwardStraight =
-            new SwerveRequest.RobotCentric().withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+    //Joysticks
+    public final static CommandPS5Controller driverController = new CommandPS5Controller(0);
 
-    private final Telemetry logger = new Telemetry(MaxSpeed);
-
-    private final CommandPS5Controller driverController = new CommandPS5Controller(0);
-
-    public final Drivetrain drivetrain = TunerConstants.createDrivetrain();
+    //Subsystems
+    public final static CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
 
     /* Path follower */
     private final SendableChooser<Command> autoChooser;
@@ -49,33 +42,28 @@ public class RobotContainer {
         SmartDashboard.putData("Auto Mode", autoChooser);
 
         configureBindings();
-
-        drivetrain.resetPose(new Pose2d(3, 3, new Rotation2d()));
     }
 
     private void configureBindings() {
-        // Note that X is defined as forward according to WPILib convention,
-        // and Y is defined as to the left according to WPILib convention.
-        drivetrain.setDefaultCommand(
-                // Drivetrain will execute this command periodically
-                drivetrain.applyRequest(
-                        () -> drive.withVelocityX(
-                                        -driverController.getLeftY() * MaxSpeed) // Drive forward with negative Y (forward)
-                                .withVelocityY(-driverController.getLeftX() * MaxSpeed) // Drive left with negative X (left)
-                                .withRotationalRate(-driverController.getRightX()
-                                        * MaxAngularRate) // Drive counterclockwise with negative X (left)
-                        ));
+        drivetrain.setDefaultCommand(drivetrain.driveJoystickInputCommand());
 
-        
-        driverController.pov(0)
-                .whileTrue(drivetrain.applyRequest(
-                        () -> forwardStraight.withVelocityX(0.5).withVelocityY(0)));
-        driverController.pov(180)
-                .whileTrue(drivetrain.applyRequest(
-                        () -> forwardStraight.withVelocityX(-0.5).withVelocityY(0)));
+        // Robot relative
+        driverController.L2()
+			.onTrue(drivetrain.toRobotRelativeCommand())
+			.onFalse(drivetrain.toFieldRelativeCommand());
 
-        // reset the field-centric heading on left bumper press
-        driverController.L2().onTrue(drivetrain.runOnce(() -> drivetrain.seedFieldCentric()));
+        // 90 degree buttons
+        driverController.triangle()
+            .onTrue(drivetrain.alignToAngleFieldRelativeCommand(PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(0)), false));
+        driverController.square()
+            .onTrue(drivetrain.alignToAngleFieldRelativeCommand((Rotation2d.fromDegrees(-54)), false));
+        driverController.cross()
+            .onTrue(drivetrain.alignToAngleFieldRelativeCommand(PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(180)), false));
+        driverController.circle()
+            .onTrue(drivetrain.alignToAngleFieldRelativeCommand(Rotation2d.fromDegrees(54), false));
+
+        // zeros gyro
+        driverController.touchpad().onTrue(drivetrain.zeroGyroCommand());
 
         drivetrain.registerTelemetry(logger::telemeterize);
     }

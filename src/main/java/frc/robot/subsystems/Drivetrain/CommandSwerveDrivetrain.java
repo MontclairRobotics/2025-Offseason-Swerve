@@ -1,20 +1,29 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.Drivetrain;
 
 import static edu.wpi.first.units.Units.*;
 
 import com.ctre.phoenix6.SignalLogger;
 import com.ctre.phoenix6.Utils;
+import com.ctre.phoenix6.swerve.SwerveModule.SteerRequestType;
 import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
+import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.path.PathConstraints;
+
 import dev.doglog.DogLog;
+import edu.wpi.first.apriltag.AprilTagFieldLayout;
+import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.Matrix;
+import edu.wpi.first.math.controller.PIDController;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.system.plant.DCMotor;
@@ -24,14 +33,18 @@ import edu.wpi.first.wpilibj.Notifier;
 import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import frc.robot.RobotContainer;
 import frc.robot.generated.TunerConstants;
 import frc.robot.generated.TunerConstants.TunerSwerveDrivetrain;
+import frc.robot.utils.Constants.DriveConstants;
+import frc.robot.utils.PoseUtils;
 import frc.robot.utils.simulation.MapleSimSwerveDrivetrain;
 import java.util.function.Supplier;
 
-public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
+public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Subsystem {
     
     private static final double kSimLoopPeriod = 0.002; // 2 ms
     private Notifier m_simNotifier = null;
@@ -102,48 +115,18 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
     /* The SysId routine to test */
     private SysIdRoutine m_sysIdRoutineToApply = m_sysIdRoutineTranslation;
 
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     *
-     * <p>This constructs the underlying hardware devices, so users should not construct the devices themselves. If they
-     * need the devices, they can access them through getters in the classes.
-     *
-     * @param drivetrainConstants Drivetrain-wide constants for the swerve drive
-     * @param modules Constants for each specific module
-     */
-    public Drivetrain(
-            SwerveDrivetrainConstants drivetrainConstants, SwerveModuleConstants<?, ?, ?>... modules) {
-        super(drivetrainConstants, MapleSimSwerveDrivetrain.regulateModuleConstantsForSimulation(modules));
-        if (Utils.isSimulation()) {
-            startSimThread();
-        }
-        configureAutoBuilder();
-    }
+    private Rotation2d targetHeading = Rotation2d.fromDegrees(0);
+    public AprilTagFieldLayout tagLayout = AprilTagFieldLayout.loadField(AprilTagFields.k2025ReefscapeWelded);
 
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     *
-     * <p>This constructs the underlying hardware devices, so users should not construct the devices themselves. If they
-     * need the devices, they can access them through getters in the classes.
-     *
-     * @param drivetrainConstants Drivetrain-wide constants for the swerve drive
-     * @param odometryUpdateFrequency The frequency to run the odometry loop. If unspecified or set to 0 Hz, this is 250
-     *     Hz on CAN FD, and 100 Hz on CAN 2.0.
-     * @param modules Constants for each specific module
-     */
-    public Drivetrain(
-            SwerveDrivetrainConstants drivetrainConstants,
-            double odometryUpdateFrequency,
-            SwerveModuleConstants<?, ?, ?>... modules) {
-        super(
-                drivetrainConstants,
-                odometryUpdateFrequency,
-                MapleSimSwerveDrivetrain.regulateModuleConstantsForSimulation(modules));
-        if (Utils.isSimulation()) {
-            startSimThread();
-        }
-        configureAutoBuilder();
-    }
+    /* Heading PID Controller for things like automatic alignment buttons */
+    public PIDController thetaController = new PIDController(5, 0, .1);
+
+    /* variable to store our heading */
+    public Rotation2d odometryHeading = new Rotation2d();
+
+    private boolean isRobotAtAngleSetPoint; // for angle turning
+    private boolean fieldRelative;
+
 
     /**
      * Constructs a CTRE SwerveDrivetrain using the specified constants.
@@ -160,7 +143,7 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
      *     units in meters and radians
      * @param modules Constants for each specific module
      */
-    public Drivetrain(
+    public CommandSwerveDrivetrain(
             SwerveDrivetrainConstants drivetrainConstants,
             double odometryUpdateFrequency,
             Matrix<N3, N1> odometryStandardDeviation,
@@ -175,7 +158,17 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         if (Utils.isSimulation()) {
             startSimThread();
         }
+
         configureAutoBuilder();
+        thetaController.setTolerance(Degrees.of(1).in(Radians));
+        thetaController.enableContinuousInput(-Math.PI, Math.PI);
+
+        RobotConfig config = null;
+        try {
+            config = RobotConfig.fromGUISettings();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void configureAutoBuilder() {
@@ -206,35 +199,151 @@ public class Drivetrain extends TunerSwerveDrivetrain implements Subsystem {
         }
     }
 
-    /**
-     * Returns a command that applies the specified control request to this swerve drivetrain.
-     *
-     * @param request Function returning the request to apply
-     * @return Command to run
-     */
     public Command applyRequest(Supplier<SwerveRequest> requestSupplier) {
         return run(() -> this.setControl(requestSupplier.get()));
     }
 
-    /**
-     * Runs the SysId Quasistatic test in the given direction for the routine specified by
-     * {@link #m_sysIdRoutineToApply}.
-     *
-     * @param direction Direction of the SysId Quasistatic test
-     * @return Command to run
-     */
     public Command sysIdQuasistatic(SysIdRoutine.Direction direction) {
         return m_sysIdRoutineToApply.quasistatic(direction);
     }
 
-    /**
-     * Runs the SysId Dynamic test in the given direction for the routine specified by {@link #m_sysIdRoutineToApply}.
-     *
-     * @param direction Direction of the SysId Dynamic test
-     * @return Command to run
-     */
     public Command sysIdDynamic(SysIdRoutine.Direction direction) {
         return m_sysIdRoutineToApply.dynamic(direction);
+    }
+
+    public static Rotation2d wrapAngle(Rotation2d ang) {
+        double angle = ang.getDegrees();
+        angle = (angle + 180) % 360; // Step 1 and 2
+        if (angle < 0) {
+            angle += 360; // Make sure it's positive
+        }
+        return Rotation2d.fromDegrees(angle - 180); // Step 3
+    }
+
+    public Rotation2d getWrappedHeading() {
+        return wrapAngle(odometryHeading);
+    }
+
+    public double getVelocityXFromController() {
+        double xInput = -MathUtil.applyDeadband(RobotContainer.driverController.getLeftX(), 0.06);
+        return Math.pow(xInput, 3) * DriveConstants.MAX_SPEED;
+    }
+
+    public double getVelocityYFromController() {
+        double yInput = -MathUtil.applyDeadband(RobotContainer.driverController.getLeftY(), 0.06);
+        return Math.pow(yInput, 3) * DriveConstants.MAX_SPEED;
+    }
+
+    public void driveJoystick() {
+        double rotInput = -MathUtil.applyDeadband(RobotContainer.driverController.getRightX(), 0.06);
+        double rotVelocity = Math.pow(rotInput, 3) * DriveConstants.MAX_ANGULAR_SPEED;
+        drive(getVelocityYFromController(), getVelocityXFromController(), rotVelocity, fieldRelative, true); // drives                                                                                                      // using
+    }
+
+    public void drive(ChassisSpeeds speeds, boolean fieldRelative, boolean respectOperatorPerspective) {
+        drive(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond, speeds.omegaRadiansPerSecond, fieldRelative,
+                respectOperatorPerspective);
+    }
+
+    public void drive(double xSpeed, double ySpeed, double thetaSpeed, boolean fieldRelative,
+            boolean respectOperatorPerspective) {
+
+        if (respectOperatorPerspective) {
+            if (DriverStation.getAlliance().isPresent() && DriverStation.getAlliance().get() == Alliance.Red && fieldRelative) {
+                xSpeed *= -1;
+                ySpeed *= -1;
+            }
+        }
+
+        ChassisSpeeds speeds = new ChassisSpeeds(xSpeed, ySpeed, thetaSpeed);
+        ChassisSpeeds fieldRelativeSpeeds = ChassisSpeeds.fromFieldRelativeSpeeds(speeds, getWrappedHeading());
+        speeds = fieldRelative ? fieldRelativeSpeeds : speeds;
+
+        SwerveRequest.ApplyRobotSpeeds req = new SwerveRequest.ApplyRobotSpeeds()
+            .withSpeeds(speeds)
+            .withDriveRequestType(DriveRequestType.Velocity)
+            .withSteerRequestType(SteerRequestType.Position);
+
+        applyRequest(() -> req);
+    }
+    
+    public void setRobotRelativeAngle(Rotation2d angDeg) {
+        double wrappedSetPoint = wrapAngle(odometryHeading.plus(angDeg)).getRadians();
+        thetaController.setSetpoint(wrappedSetPoint);
+    }
+
+    public void alignToAngleRobotRelative(boolean lockDrive) {
+        double response = thetaController.calculate(odometryHeading.getRadians());
+        if (lockDrive) {
+            drive(0, 0, response, false, true); // perspective doesn't matter in robot relative
+        } else {
+            drive(getVelocityYFromController(), getVelocityXFromController(), response, false, true);
+        }
+    }
+
+    public void setFieldRelativeAngle(Rotation2d angle) {
+        double wrappedAngle = wrapAngle(angle).getRadians();
+        thetaController.setSetpoint(wrappedAngle);
+    }
+
+    public void alignToAngleFieldRelative(boolean lockDrive) {
+        double response = thetaController.calculate(odometryHeading.getRadians());
+        if (lockDrive) {
+            drive(0, 0, response, true, true);
+        } else {
+            drive(getVelocityYFromController(), getVelocityXFromController(), response, true, true);
+        }
+    }
+
+    public void alignToAngleRobotRelativeContinuous(Supplier<Rotation2d> angleSup, boolean lockDrive) {
+        setRobotRelativeAngle(angleSup.get());
+        alignToAngleRobotRelative(lockDrive);
+    }
+
+    public void toRobotRelative() {
+        fieldRelative = false;
+    }
+
+    public void toFieldRelative() {
+        fieldRelative = true;
+    }
+
+    public void zeroGyro() {
+        resetRotation(PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(0)));
+    }
+    public Command driveJoystickInputCommand() {
+        return Commands.run(() -> driveJoystick(), this);
+    }
+
+    public Command zeroGyroCommand() {
+        return Commands.runOnce(() -> zeroGyro(), RobotContainer.drivetrain);
+    }
+
+    public Command toRobotRelativeCommand() {
+        return Commands.runOnce(() -> toRobotRelative(), RobotContainer.drivetrain);
+    }
+
+    public Command toFieldRelativeCommand() {
+        return Commands.runOnce(() -> toFieldRelative(), RobotContainer.drivetrain);
+    }
+
+    public Command alignToAngleRobotRelativeCommand(Rotation2d angle, boolean lockDrive) {
+        return Commands.sequence(
+                Commands.runOnce(() -> setRobotRelativeAngle(angle), RobotContainer.drivetrain),
+                Commands.run(() -> alignToAngleRobotRelative(lockDrive), RobotContainer.drivetrain)
+                        .until(() -> isRobotAtAngleSetPoint));
+    }
+
+    public Command alignToAngleRobotRelativeContinuousCommand(Supplier<Rotation2d> angle, boolean lockDrive) {
+        return Commands.run(() -> alignToAngleRobotRelativeContinuous(angle, lockDrive), this)
+                .until(() -> isRobotAtAngleSetPoint);
+    }
+
+    public Command alignToAngleFieldRelativeCommand(Rotation2d angle, boolean lockDrive) {
+        return Commands.sequence(
+                Commands.runOnce(() -> setFieldRelativeAngle(angle), RobotContainer.drivetrain),
+                Commands.run(() -> alignToAngleFieldRelative(lockDrive), this)
+                        .until(() -> isRobotAtAngleSetPoint));
     }
 
     @Override
