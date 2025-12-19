@@ -4,18 +4,15 @@ import static edu.wpi.first.units.Units.*;
 
 import com.ctre.phoenix6.SignalLogger;
 import com.ctre.phoenix6.Utils;
-import com.ctre.phoenix6.swerve.SwerveModule.SteerRequestType;
 import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
+import com.ctre.phoenix6.swerve.SwerveModule.SteerRequestType;
 import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
-import com.pathplanner.lib.path.PathConstraints;
-
-import dev.doglog.DogLog;
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.MathUtil;
@@ -30,7 +27,6 @@ import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Notifier;
-import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
@@ -45,7 +41,7 @@ import frc.robot.utils.simulation.MapleSimSwerveDrivetrain;
 import java.util.function.Supplier;
 
 public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Subsystem {
-    
+
     private static final double kSimLoopPeriod = 0.002; // 2 ms
     private Notifier m_simNotifier = null;
 
@@ -126,7 +122,6 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
 
     private boolean isRobotAtAngleSetPoint; // for angle turning
     private boolean fieldRelative;
-
 
     /**
      * Constructs a CTRE SwerveDrivetrain using the specified constants.
@@ -237,19 +232,30 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     public void driveJoystick() {
         double rotInput = -MathUtil.applyDeadband(RobotContainer.driverController.getRightX(), 0.06);
         double rotVelocity = Math.pow(rotInput, 3) * DriveConstants.MAX_ANGULAR_SPEED;
-        drive(getVelocityYFromController(), getVelocityXFromController(), rotVelocity, fieldRelative, true); // drives                                                                                                      // using
+        drive(getVelocityYFromController(), getVelocityXFromController(), rotVelocity, fieldRelative, true); // drives
+        System.out.println("drive joystick method is running");
     }
 
     public void drive(ChassisSpeeds speeds, boolean fieldRelative, boolean respectOperatorPerspective) {
-        drive(speeds.vxMetersPerSecond, speeds.vyMetersPerSecond, speeds.omegaRadiansPerSecond, fieldRelative,
+        drive(
+                speeds.vxMetersPerSecond,
+                speeds.vyMetersPerSecond,
+                speeds.omegaRadiansPerSecond,
+                fieldRelative,
                 respectOperatorPerspective);
     }
 
-    public void drive(double xSpeed, double ySpeed, double thetaSpeed, boolean fieldRelative,
+    public void drive(
+            double xSpeed,
+            double ySpeed,
+            double thetaSpeed,
+            boolean fieldRelative,
             boolean respectOperatorPerspective) {
 
         if (respectOperatorPerspective) {
-            if (DriverStation.getAlliance().isPresent() && DriverStation.getAlliance().get() == Alliance.Red && fieldRelative) {
+            if (DriverStation.getAlliance().isPresent()
+                    && DriverStation.getAlliance().get() == Alliance.Red
+                    && fieldRelative) {
                 xSpeed *= -1;
                 ySpeed *= -1;
             }
@@ -260,13 +266,14 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
         speeds = fieldRelative ? fieldRelativeSpeeds : speeds;
 
         SwerveRequest.ApplyRobotSpeeds req = new SwerveRequest.ApplyRobotSpeeds()
-            .withSpeeds(speeds)
-            .withDriveRequestType(DriveRequestType.Velocity)
-            .withSteerRequestType(SteerRequestType.Position);
+                .withSpeeds(speeds)
+                .withDriveRequestType(DriveRequestType.OpenLoopVoltage)
+                .withSteerRequestType(SteerRequestType.Position);
 
-        applyRequest(() -> req);
+        setControl(req);
+        System.out.println("drive method is running");
     }
-    
+
     public void setRobotRelativeAngle(Rotation2d angDeg) {
         double wrappedSetPoint = wrapAngle(odometryHeading.plus(angDeg)).getRadians();
         thetaController.setSetpoint(wrappedSetPoint);
@@ -311,6 +318,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     public void zeroGyro() {
         resetRotation(PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(0)));
     }
+
     public Command driveJoystickInputCommand() {
         return Commands.run(() -> driveJoystick(), this);
     }
@@ -342,8 +350,7 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
     public Command alignToAngleFieldRelativeCommand(Rotation2d angle, boolean lockDrive) {
         return Commands.sequence(
                 Commands.runOnce(() -> setFieldRelativeAngle(angle), RobotContainer.drivetrain),
-                Commands.run(() -> alignToAngleFieldRelative(lockDrive), this)
-                        .until(() -> isRobotAtAngleSetPoint));
+                Commands.run(() -> alignToAngleFieldRelative(lockDrive), this).until(() -> isRobotAtAngleSetPoint));
     }
 
     @Override
@@ -365,13 +372,13 @@ public class CommandSwerveDrivetrain extends TunerSwerveDrivetrain implements Su
             });
         }
 
-        DogLog.log("BatteryVoltage", RobotController.getBatteryVoltage());
-        DogLog.log("Drive/OdometryPose", getState().Pose);
-        DogLog.log("Drive/TargetStates", getState().ModuleTargets);
-        DogLog.log("Drive/MeasuredStates", getState().ModuleStates);
-        DogLog.log("Drive/MeasuredSpeeds", getState().Speeds);
-        if (mapleSimSwerveDrivetrain != null)
-            DogLog.log("Drive/SimulationPose", mapleSimSwerveDrivetrain.mapleSimDrive.getSimulatedDriveTrainPose());
+        // DogLog.log("BatteryVoltage", RobotController.getBatteryVoltage());
+        // DogLog.log("Drive/OdometryPose", getState().Pose);
+        // DogLog.log("Drive/TargetStates", getState().ModuleTargets);
+        // DogLog.log("Drive/MeasuredStates", getState().ModuleStates);
+        // DogLog.log("Drive/MeasuredSpeeds", getState().Speeds);
+        // if (mapleSimSwerveDrivetrain != null)
+        //     DogLog.log("Drive/SimulationPose", mapleSimSwerveDrivetrain.mapleSimDrive.getSimulatedDriveTrainPose());
     }
 
     private MapleSimSwerveDrivetrain mapleSimSwerveDrivetrain = null;
