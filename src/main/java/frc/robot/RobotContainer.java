@@ -13,6 +13,7 @@ import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
+import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.Drivetrain.CommandSwerveDrivetrain;
 import frc.robot.utils.Constants.DriveConstants;
@@ -45,27 +46,45 @@ public class RobotContainer {
         driverController.L2().onTrue(drivetrain.toRobotRelativeCommand()).onFalse(drivetrain.toFieldRelativeCommand());
 
         // 90 degree buttons
-        driverController
-                .triangle()
-                .onTrue(drivetrain.alignToAngleFieldRelativeCommand(
-                        PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(0)), false));
-        driverController
-                .square()
-                .onTrue(drivetrain.alignToAngleFieldRelativeCommand((Rotation2d.fromDegrees(-54)), false));
-        driverController
-                .cross()
-                .onTrue(drivetrain.alignToAngleFieldRelativeCommand(
-                        PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(180)), false));
-        driverController
-                .circle()
-                .onTrue(drivetrain.alignToAngleFieldRelativeCommand(Rotation2d.fromDegrees(54), false));
+        // driverController
+        //         .triangle()
+        //         .onTrue(drivetrain.alignToAngleFieldRelativeCommand(
+        //                 PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(0)), false));
+        // driverController
+        //         .square()
+        //         .onTrue(drivetrain.alignToAngleFieldRelativeCommand((Rotation2d.fromDegrees(-54)), false));
+        // driverController
+        //         .cross()
+        //         .onTrue(drivetrain.alignToAngleFieldRelativeCommand(
+        //                 PoseUtils.flipRotAlliance(Rotation2d.fromDegrees(180)), false));
+        // driverController
+        //         .circle()
+        //         .onTrue(drivetrain.alignToAngleFieldRelativeCommand(Rotation2d.fromDegrees(54), false));
 
         // zeros gyro
         driverController.touchpad().onTrue(drivetrain.zeroGyroCommand());
 
         drivetrain.registerTelemetry(logger::telemeterize);
+
+        driverController
+                .circle()
+                .whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kForward));
+
+        driverController
+                .triangle()
+                .whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kReverse));
+
+        driverController
+                .square()
+                .whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kForward));
+
+        driverController
+                .cross()
+                .whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kReverse));
+        
     }
 
+        
     public Command getAutonomousCommand() {
         /* Run the path selected from the auto chooser */
         return autoChooser.getSelected();
