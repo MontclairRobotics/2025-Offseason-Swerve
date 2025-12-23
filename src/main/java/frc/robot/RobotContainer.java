@@ -8,7 +8,6 @@ import static edu.wpi.first.units.Units.*;
 import static frc.robot.utils.Constants.DriveConstants.*;
 
 import com.pathplanner.lib.auto.AutoBuilder;
-import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -17,7 +16,6 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.generated.TunerConstants;
 import frc.robot.subsystems.Drivetrain.CommandSwerveDrivetrain;
 import frc.robot.utils.Constants.DriveConstants;
-import frc.robot.utils.PoseUtils;
 
 public class RobotContainer {
 
@@ -66,25 +64,15 @@ public class RobotContainer {
 
         drivetrain.registerTelemetry(logger::telemeterize);
 
-        driverController
-                .circle()
-                .whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kForward));
+        driverController.circle().whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kForward));
 
-        driverController
-                .triangle()
-                .whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kReverse));
+        driverController.triangle().whileTrue(drivetrain.sysIdQuasistatic(SysIdRoutine.Direction.kReverse));
 
-        driverController
-                .square()
-                .whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kForward));
+        driverController.square().whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kForward));
 
-        driverController
-                .cross()
-                .whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kReverse));
-        
+        driverController.cross().whileTrue(drivetrain.sysIdDynamic(SysIdRoutine.Direction.kReverse));
     }
 
-        
     public Command getAutonomousCommand() {
         /* Run the path selected from the auto chooser */
         return autoChooser.getSelected();
